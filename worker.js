@@ -1,9 +1,4 @@
-/**
- * Hacktiba Labs — Gateway público.
- * Sem banco, cookies, logs de aplicação ou cadastro.
- * Turnstile -> sessão curta assinada e vinculada ao IP da requisição.
- * O código das engines não é exposto: somente Service Binding ENGINES.
- */
+
 const encoder = new TextEncoder();
 const ROUTES = Object.freeze({
   '/api/feed': 7, '/api/search': 1, '/api/plugin': 2,
@@ -58,12 +53,21 @@ function clientIp(request) {
 }
 class ApiError extends Error { constructor(status, message) { super(message); this.status=status; } }
 function requireSecrets(env) {
-  if (!env.SESSION_SIGNING_KEY || env.SESSION_SIGNING_KEY.length < 32 ||
-      !env.RATE_KEY_SECRET || env.RATE_KEY_SECRET.length < 32 ||
-      !env.INTERNAL_KEY || env.INTERNAL_KEY.length < 32 ||
-      !env.TURNSTILE_SECRET || env.TURNSTILE_SECRET.length < 16 ||
-      !env.ENGINES?.fetch || !env.GENERAL_RATE?.limit || !env.HEAVY_RATE?.limit || !env.AUTH_RATE?.limit) {
-    throw new ApiError(503, 'Serviço ainda não configurado.');
+  // Diagnóstico sem revelar chaves, valores, tamanhos ou identificadores de visitantes.
+  // Os códigos abaixo são mapeados SOMENTE na documentação privada.
+  const checks = [
+    ['C01', typeof env.SESSION_SIGNING_KEY === 'string' && env.SESSION_SIGNING_KEY.length >= 32],
+    ['C02', typeof env.RATE_KEY_SECRET === 'string' && env.RATE_KEY_SECRET.length >= 32],
+    ['C03', typeof env.INTERNAL_KEY === 'string' && env.INTERNAL_KEY.length >= 32],
+    ['C04', typeof env.TURNSTILE_SECRET === 'string' && env.TURNSTILE_SECRET.length >= 16],
+    ['C05', typeof env.ENGINES?.fetch === 'function'],
+    ['C06', typeof env.GENERAL_RATE?.limit === 'function'],
+    ['C07', typeof env.HEAVY_RATE?.limit === 'function'],
+    ['C08', typeof env.AUTH_RATE?.limit === 'function']
+  ];
+  const missing = checks.filter(([, valid]) => !valid).map(([code]) => code);
+  if (missing.length) {
+    throw new ApiError(503, 'Serviço ainda não configurado. Diagnóstico: ' + missing.join(','));
   }
 }
 async function rateKey(ip, env) {
