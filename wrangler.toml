@@ -1,0 +1,41 @@
+name = "hacktiba-gateway"
+main = "worker.js"
+compatibility_date = "2026-11-22"
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = false
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+
+[vars]
+SITE_ORIGIN = "https://hacktiba.github.io"
+
+[[services]]
+binding = "ENGINES"
+service = "hacktiba-engines"
+
+# Contadores temporários por datacenter; limites aproximados, não são DDoS shield.
+[[ratelimits]]
+name = "GENERAL_RATE"
+namespace_id = "52001"
+  [ratelimits.simple]
+  limit = 40
+  period = 60
+
+[[ratelimits]]
+name = "HEAVY_RATE"
+namespace_id = "52002"
+  [ratelimits.simple]
+  limit = 16
+  period = 60
+
+[[ratelimits]]
+name = "AUTH_RATE"
+namespace_id = "52003"
+  [ratelimits.simple]
+  limit = 6
+  period = 60
