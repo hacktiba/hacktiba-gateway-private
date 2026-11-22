@@ -15,7 +15,14 @@ const MAX_QUERY = 520;
 const MAX_PRIVATE_BYTES = 280_000;
 const MAX_VERIFY_BYTES = 12_000;
 
-function json(body, status=200, origin='') {
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function json(body, status = 200, origin = '') {
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -36,6 +43,7 @@ function json(body, status=200, origin='') {
   }
 
   headers.set('X-Frame-Options', 'DENY');
+
   headers.set(
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=()'
@@ -63,26 +71,35 @@ function base64url(raw) {
 
 function decodeBase64url(s) {
   return Uint8Array.from(
-    atob(s.replace(/-/g, '+').replace(/_/g, '/')),
+    atob(
+      s.replace(/-/g, '+')
+       .replace(/_/g, '/')
+    ),
     c => c.charCodeAt(0)
   );
 }
 
 async function keyMaterial(
   secret,
-  purposes=['sign','verify']
+  purposes = ['sign', 'verify']
 ) {
   return crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),
-    {name:'HMAC', hash:'SHA-256'},
+    {
+      name: 'HMAC',
+      hash: 'SHA-256'
+    },
     false,
     purposes
   );
 }
 
 async function sign(secret, text) {
-  const key = await keyMaterial(secret, ['sign']);
+  const key = await keyMaterial(
+    secret,
+    ['sign']
+  );
 
   return base64url(
     await crypto.subtle.sign(
@@ -98,7 +115,10 @@ async function verify(secret, text, b64) {
     return false;
   }
 
-  const key = await keyMaterial(secret, ['verify']);
+  const key = await keyMaterial(
+    secret,
+    ['verify']
+  );
 
   return crypto.subtle.verify(
     'HMAC',
@@ -108,15 +128,10 @@ async function verify(secret, text, b64) {
   );
 }
 
-class ApiError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
-
 function clientIp(request) {
-  const ip = request.headers.get('CF-Connecting-IP');
+  const ip = request.headers.get(
+    'CF-Connecting-IP'
+  );
 
   if (
     !ip ||
@@ -132,10 +147,11 @@ function clientIp(request) {
   return ip;
 }
 
+/**
+ * Diagnostico temporario de configuracao.
+ * Nao revela valores secretos.
+ */
 function requireSecrets(env) {
-  // Diagnósticos temporários.
-  // Não exibe valores ou conteúdos dos segredos.
-
   const checks = [
     [
       'C01',
@@ -176,7 +192,7 @@ function requireSecrets(env) {
   ];
 
   const missing = checks
-    .filter(([,valid]) => !valid)
+    .filter(([, valid]) => !valid)
     .map(([code]) => code);
 
   if (missing.length) {
@@ -188,6 +204,10 @@ function requireSecrets(env) {
   }
 }
 
+/**
+ * Identificador temporario para rate limiting.
+ * Nao armazena o IP em banco proprio.
+ */
 async function rateKey(ip, env) {
   const epoch = Math.floor(
     Date.now() / 86400000
@@ -201,7 +221,7 @@ async function rateKey(ip, env) {
   );
 
   return base64url(
-    new Uint8Array(digest).slice(0,18)
+    new Uint8Array(digest).slice(0, 18)
   );
 }
 
@@ -209,7 +229,7 @@ async function limit(
   env,
   key,
   binding,
-  delta=1
+  delta = 1
 ) {
   const res = await env[binding].limit({
     key,
@@ -224,13 +244,22 @@ async function limit(
   }
 }
 
-async function readBoundedJSON(request, maxBytes) {
+/**
+ * Leitura de JSON com limite de tamanho.
+ */
+async function readBoundedJSON(
+  request,
+  maxBytes
+) {
   if (
     !/^application\/json(?:\s*;|$)/i.test(
       request.headers.get('Content-Type') || ''
     )
   ) {
-    throw new ApiError(415, 'Envie JSON.');
+    throw new ApiError(
+      415,
+      'Envie JSON.'
+    );
   }
 
   if (
@@ -238,13 +267,19 @@ async function readBoundedJSON(request, maxBytes) {
       request.headers.get('Content-Length') || 0
     ) > maxBytes
   ) {
-    throw new ApiError(413, 'Dados muito grandes.');
+    throw new ApiError(
+      413,
+      'Dados muito grandes.'
+    );
   }
 
   const reader = request.body?.getReader();
 
   if (!reader) {
-    throw new ApiError(400, 'Corpo não informado.');
+    throw new ApiError(
+      400,
+      'Corpo não informado.'
+    );
   }
 
   let count = 0;
@@ -259,7 +294,11 @@ async function readBoundedJSON(request, maxBytes) {
 
     if (count > maxBytes) {
       await reader.cancel().catch(() => {});
-      throw new ApiError(413, 'Dados muito grandes.');
+
+      throw new ApiError(
+        413,
+        'Dados muito grandes.'
+      );
     }
 
     chunks.push(value);
@@ -269,21 +308,32 @@ async function readBoundedJSON(request, maxBytes) {
   let offset = 0;
 
   for (const chunk of chunks) {
-    bytes.set(chunk,offset);
+    bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
 
   try {
     return JSON.parse(
-      new TextDecoder('utf-8', {fatal:true})
-        .decode(bytes)
+      new TextDecoder(
+        'utf-8',
+        {fatal: true}
+      ).decode(bytes)
     );
   } catch {
-    throw new ApiError(400, 'JSON inválido.');
+    throw new ApiError(
+      400,
+      'JSON inválido.'
+    );
   }
 }
 
-async function boundedResponseJSON(res, maxBytes) {
+/**
+ * Leitura limitada de respostas externas.
+ */
+async function boundedResponseJSON(
+  res,
+  maxBytes
+) {
   const declared = Number(
     res.headers.get('Content-Length') || '0'
   );
@@ -308,7 +358,7 @@ async function boundedResponseJSON(res, maxBytes) {
   const parts = [];
 
   while (true) {
-    const {done,value} = await reader.read();
+    const {done, value} = await reader.read();
 
     if (done) break;
 
@@ -316,6 +366,7 @@ async function boundedResponseJSON(res, maxBytes) {
 
     if (count > maxBytes) {
       await reader.cancel().catch(() => {});
+
       throw new ApiError(
         502,
         'Resposta externa acima do limite.'
@@ -329,14 +380,16 @@ async function boundedResponseJSON(res, maxBytes) {
   let offset = 0;
 
   for (const part of parts) {
-    joined.set(part,offset);
+    joined.set(part, offset);
     offset += part.byteLength;
   }
 
   try {
     return JSON.parse(
-      new TextDecoder('utf-8', {fatal:true})
-        .decode(joined)
+      new TextDecoder(
+        'utf-8',
+        {fatal: true}
+      ).decode(joined)
     );
   } catch {
     throw new ApiError(
@@ -346,12 +399,15 @@ async function boundedResponseJSON(res, maxBytes) {
   }
 }
 
-/*
- * Turnstile
- * T01 = timeout
- * T02 = outra exceção na verificação
+/**
+ * Cloudflare Turnstile.
+ *
+ * Correção aplicada:
+ * redirect: 'manual'
+ *
+ * T01 = timeout.
+ * T02 = outra excecao inesperada.
  */
-
 async function turnstileValidate(token, env) {
   if (
     typeof token !== 'string' ||
@@ -382,7 +438,7 @@ async function turnstileValidate(token, env) {
       {
         method: 'POST',
         body: payload,
-        redirect: 'error',
+        redirect: 'manual',
         signal: ctrl.signal
       }
     );
@@ -431,6 +487,9 @@ async function turnstileValidate(token, env) {
   }
 }
 
+/**
+ * Cria sessao curta com assinatura HMAC.
+ */
 async function issueSession(ip, env) {
   const expiry = (
     Date.now() + TTL_MS
@@ -452,18 +511,27 @@ async function issueSession(ip, env) {
   return `${payload}.${signature}`;
 }
 
-async function sessionValid(request,env,ip) {
+async function sessionValid(
+  request,
+  env,
+  ip
+) {
   const auth = request.headers.get(
     'Authorization'
   ) || '';
 
   const match =
     /^Bearer (v1\.([0-9a-z]+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43}))$/
-    .exec(auth);
+      .exec(auth);
 
-  if (!match) return false;
+  if (!match) {
+    return false;
+  }
 
-  const exp = parseInt(match[2],36);
+  const exp = parseInt(
+    match[2],
+    36
+  );
 
   if (
     !Number.isSafeInteger(exp) ||
@@ -480,6 +548,10 @@ async function sessionValid(request,env,ip) {
   );
 }
 
+/**
+ * Comunicacao privada com Engines.
+ * Service Binding + assinatura HMAC.
+ */
 async function privateRequest(url, env) {
   const ts = Date.now().toString();
 
@@ -505,12 +577,12 @@ async function privateRequest(url, env) {
       new Request(
         upstream.toString(),
         {
-          method:'GET',
-          headers:{
-            'X-Hacktiba-Timestamp':ts,
-            'X-Hacktiba-Signature':signature
+          method: 'GET',
+          headers: {
+            'X-Hacktiba-Timestamp': ts,
+            'X-Hacktiba-Signature': signature
           },
-          signal:ctrl.signal
+          signal: ctrl.signal
         }
       )
     );
@@ -518,7 +590,14 @@ async function privateRequest(url, env) {
     if (
       response.status !== 200 &&
       ![
-        400,404,405,413,414,429,502,503
+        400,
+        404,
+        405,
+        413,
+        414,
+        429,
+        502,
+        503
       ].includes(response.status)
     ) {
       throw new ApiError(
@@ -555,7 +634,7 @@ async function privateRequest(url, env) {
     }
 
     return {
-      status:response.status,
+      status: response.status,
       value
     };
 
@@ -574,33 +653,38 @@ async function privateRequest(url, env) {
   }
 }
 
+/**
+ * Gateway HTTP.
+ */
 export default {
-  async fetch(request,env) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     const allowedOrigin = String(
       env.SITE_ORIGIN || ''
-    ).replace(/\/$/,'');
+    ).replace(/\/$/, '');
 
-    const origin =
-      request.headers.get('Origin') || '';
+    const origin = request.headers.get(
+      'Origin'
+    ) || '';
 
     const permitted =
-      allowedOrigin && origin === allowedOrigin;
+      allowedOrigin &&
+      origin === allowedOrigin;
 
     if (
       url.pathname === '/api/health' &&
       request.method === 'GET'
     ) {
       return json({
-        ok:true,
-        component:'gateway'
+        ok: true,
+        component: 'gateway'
       });
     }
 
     if (!permitted) {
       return json(
-        {error:'Origem não autorizada.'},
+        {error: 'Origem não autorizada.'},
         403
       );
     }
@@ -608,27 +692,30 @@ export default {
     if (request.method === 'OPTIONS') {
       if (
         url.pathname !== '/api/session' &&
-        !Object.hasOwn(ROUTES,url.pathname)
+        !Object.hasOwn(
+          ROUTES,
+          url.pathname
+        )
       ) {
         return json(
-          {error:'Rota inexistente.'},
+          {error: 'Rota inexistente.'},
           404,
           origin
         );
       }
 
-      return new Response(null,{
-        status:204,
-        headers:{
-          'Access-Control-Allow-Origin':origin,
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': origin,
           'Access-Control-Allow-Methods':
             url.pathname === '/api/session'
               ? 'POST, OPTIONS'
               : 'GET, OPTIONS',
           'Access-Control-Allow-Headers':
             'Authorization, Content-Type',
-          'Access-Control-Max-Age':'600',
-          'Vary':'Origin'
+          'Access-Control-Max-Age': '600',
+          'Vary': 'Origin'
         }
       });
     }
@@ -644,12 +731,21 @@ export default {
       }
 
       const ip = clientIp(request);
-      const key = await rateKey(ip,env);
 
-      await limit(
-        env,key,'GENERAL_RATE'
+      const key = await rateKey(
+        ip,
+        env
       );
 
+      await limit(
+        env,
+        key,
+        'GENERAL_RATE'
+      );
+
+      /**
+       * Autenticacao Turnstile.
+       */
       if (url.pathname === '/api/session') {
         if (
           request.method !== 'POST' ||
@@ -662,7 +758,9 @@ export default {
         }
 
         await limit(
-          env,key,'AUTH_RATE'
+          env,
+          key,
+          'AUTH_RATE'
         );
 
         const body = await readBoundedJSON(
@@ -689,14 +787,27 @@ export default {
           env
         );
 
-        return json({
-          session:await issueSession(ip,env),
-          expiresIn:TTL_MS / 1000
-        },200,origin);
+        return json(
+          {
+            session: await issueSession(
+              ip,
+              env
+            ),
+            expiresIn: TTL_MS / 1000
+          },
+          200,
+          origin
+        );
       }
 
+      /**
+       * Rotas de pesquisa.
+       */
       if (
-        !Object.hasOwn(ROUTES,url.pathname)
+        !Object.hasOwn(
+          ROUTES,
+          url.pathname
+        )
       ) {
         throw new ApiError(
           404,
@@ -711,9 +822,13 @@ export default {
         );
       }
 
-      if (
-        !await sessionValid(request,env,ip)
-      ) {
+      const validSession = await sessionValid(
+        request,
+        env,
+        ip
+      );
+
+      if (!validSession) {
         throw new ApiError(
           401,
           'Sessão expirada. Confirme seu acesso novamente.'
@@ -728,7 +843,8 @@ export default {
       );
 
       const response = await privateRequest(
-        url,env
+        url,
+        env
       );
 
       return json(
@@ -745,9 +861,10 @@ export default {
 
       return json(
         {
-          error:err instanceof ApiError
-            ? err.message
-            : 'Falha temporária.'
+          error:
+            err instanceof ApiError
+              ? err.message
+              : 'Falha temporária.'
         },
         code,
         origin
