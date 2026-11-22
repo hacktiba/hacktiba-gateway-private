@@ -1,4 +1,4 @@
-name = "hacktiba-gateway"
+name = "hacktiba-gateway-private"
 main = "worker.js"
 compatibility_date = "2026-11-22"
 workers_dev = true
