@@ -1,11 +1,4 @@
 
-/**
- * Hacktiba Labs — Gateway público.
- * Sem banco, cookies, logs de aplicação ou cadastro.
- * Turnstile -> sessão curta assinada e vinculada ao IP.
- * Engines acessíveis via Service Binding ENGINES.
- */
-
 const encoder = new TextEncoder();
 
 const ROUTES = Object.freeze({
