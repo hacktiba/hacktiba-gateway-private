@@ -16,7 +16,7 @@ SITE_ORIGIN = "https://hacktiba.github.io"
 
 [[services]]
 binding = "ENGINES"
-service = "hacktiba-engines"
+service = "hacktiba-engines-private"
 
 # Contadores temporários por datacenter; limites aproximados, não são DDoS shield.
 [[ratelimits]]
