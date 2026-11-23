@@ -29,8 +29,7 @@ function json(body, status = 200, origin = '') {
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'X-Robots-Tag': 'noindex, nofollow',
-    'Content-Security-Policy':
-      "default-src 'none'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
     'Vary': 'Origin'
   });
 
@@ -71,35 +70,23 @@ function base64url(raw) {
 
 function decodeBase64url(s) {
   return Uint8Array.from(
-    atob(
-      s.replace(/-/g, '+')
-       .replace(/_/g, '/')
-    ),
+    atob(s.replace(/-/g, '+').replace(/_/g, '/')),
     c => c.charCodeAt(0)
   );
 }
 
-async function keyMaterial(
-  secret,
-  purposes = ['sign', 'verify']
-) {
+async function keyMaterial(secret, purposes = ['sign', 'verify']) {
   return crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),
-    {
-      name: 'HMAC',
-      hash: 'SHA-256'
-    },
+    { name: 'HMAC', hash: 'SHA-256' },
     false,
     purposes
   );
 }
 
 async function sign(secret, text) {
-  const key = await keyMaterial(
-    secret,
-    ['sign']
-  );
+  const key = await keyMaterial(secret, ['sign']);
 
   return base64url(
     await crypto.subtle.sign(
@@ -115,10 +102,7 @@ async function verify(secret, text, b64) {
     return false;
   }
 
-  const key = await keyMaterial(
-    secret,
-    ['verify']
-  );
+  const key = await keyMaterial(secret, ['verify']);
 
   return crypto.subtle.verify(
     'HMAC',
@@ -129,9 +113,7 @@ async function verify(secret, text, b64) {
 }
 
 function clientIp(request) {
-  const ip = request.headers.get(
-    'CF-Connecting-IP'
-  );
+  const ip = request.headers.get('CF-Connecting-IP');
 
   if (
     !ip ||
@@ -147,10 +129,6 @@ function clientIp(request) {
   return ip;
 }
 
-/**
- * Diagnostico temporario de configuracao.
- * Nao revela valores secretos.
- */
 function requireSecrets(env) {
   const checks = [
     [
@@ -204,14 +182,8 @@ function requireSecrets(env) {
   }
 }
 
-/**
- * Identificador temporario para rate limiting.
- * Nao armazena o IP em banco proprio.
- */
 async function rateKey(ip, env) {
-  const epoch = Math.floor(
-    Date.now() / 86400000
-  );
+  const epoch = Math.floor(Date.now() / 86400000);
 
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -225,12 +197,7 @@ async function rateKey(ip, env) {
   );
 }
 
-async function limit(
-  env,
-  key,
-  binding,
-  delta = 1
-) {
+async function limit(env, key, binding, delta = 1) {
   const res = await env[binding].limit({
     key,
     delta
@@ -244,61 +211,44 @@ async function limit(
   }
 }
 
-/**
- * Leitura de JSON com limite de tamanho.
- */
-async function readBoundedJSON(
-  request,
-  maxBytes
-) {
+async function readBoundedJSON(request, maxBytes) {
   if (
     !/^application\/json(?:\s*;|$)/i.test(
       request.headers.get('Content-Type') || ''
     )
   ) {
-    throw new ApiError(
-      415,
-      'Envie JSON.'
-    );
+    throw new ApiError(415, 'Envie JSON.');
   }
 
   if (
-    Number(
-      request.headers.get('Content-Length') || 0
-    ) > maxBytes
+    Number(request.headers.get('Content-Length') || 0) >
+    maxBytes
   ) {
-    throw new ApiError(
-      413,
-      'Dados muito grandes.'
-    );
+    throw new ApiError(413, 'Dados muito grandes.');
   }
 
   const reader = request.body?.getReader();
 
   if (!reader) {
-    throw new ApiError(
-      400,
-      'Corpo não informado.'
-    );
+    throw new ApiError(400, 'Corpo não informado.');
   }
 
   let count = 0;
   const chunks = [];
 
   while (true) {
-    const {done, value} = await reader.read();
+    const { done, value } = await reader.read();
 
-    if (done) break;
+    if (done) {
+      break;
+    }
 
     count += value.byteLength;
 
     if (count > maxBytes) {
       await reader.cancel().catch(() => {});
 
-      throw new ApiError(
-        413,
-        'Dados muito grandes.'
-      );
+      throw new ApiError(413, 'Dados muito grandes.');
     }
 
     chunks.push(value);
@@ -314,26 +264,15 @@ async function readBoundedJSON(
 
   try {
     return JSON.parse(
-      new TextDecoder(
-        'utf-8',
-        {fatal: true}
-      ).decode(bytes)
+      new TextDecoder('utf-8', { fatal: true })
+        .decode(bytes)
     );
   } catch {
-    throw new ApiError(
-      400,
-      'JSON inválido.'
-    );
+    throw new ApiError(400, 'JSON inválido.');
   }
 }
 
-/**
- * Leitura limitada de respostas externas.
- */
-async function boundedResponseJSON(
-  res,
-  maxBytes
-) {
+async function boundedResponseJSON(res, maxBytes) {
   const declared = Number(
     res.headers.get('Content-Length') || '0'
   );
@@ -358,9 +297,11 @@ async function boundedResponseJSON(
   const parts = [];
 
   while (true) {
-    const {done, value} = await reader.read();
+    const { done, value } = await reader.read();
 
-    if (done) break;
+    if (done) {
+      break;
+    }
 
     count += value.byteLength;
 
@@ -386,10 +327,8 @@ async function boundedResponseJSON(
 
   try {
     return JSON.parse(
-      new TextDecoder(
-        'utf-8',
-        {fatal: true}
-      ).decode(joined)
+      new TextDecoder('utf-8', { fatal: true })
+        .decode(joined)
     );
   } catch {
     throw new ApiError(
@@ -399,15 +338,6 @@ async function boundedResponseJSON(
   }
 }
 
-/**
- * Cloudflare Turnstile.
- *
- * Correção aplicada:
- * redirect: 'manual'
- *
- * T01 = timeout.
- * T02 = outra excecao inesperada.
- */
 async function turnstileValidate(token, env) {
   if (
     typeof token !== 'string' ||
@@ -446,7 +376,7 @@ async function turnstileValidate(token, env) {
     if (!response.ok) {
       throw new ApiError(
         503,
-        'Não foi possível validar o acesso.'
+        `Siteverify HTTP ${response.status}`
       );
     }
 
@@ -487,18 +417,13 @@ async function turnstileValidate(token, env) {
   }
 }
 
-/**
- * Cria sessao curta com assinatura HMAC.
- */
 async function issueSession(ip, env) {
   const expiry = (
     Date.now() + TTL_MS
   ).toString(36);
 
   const nonce = base64url(
-    crypto.getRandomValues(
-      new Uint8Array(16)
-    )
+    crypto.getRandomValues(new Uint8Array(16))
   );
 
   const payload = `v1.${expiry}.${nonce}`;
@@ -511,14 +436,8 @@ async function issueSession(ip, env) {
   return `${payload}.${signature}`;
 }
 
-async function sessionValid(
-  request,
-  env,
-  ip
-) {
-  const auth = request.headers.get(
-    'Authorization'
-  ) || '';
+async function sessionValid(request, env, ip) {
+  const auth = request.headers.get('Authorization') || '';
 
   const match =
     /^Bearer (v1\.([0-9a-z]+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43}))$/
@@ -528,10 +447,7 @@ async function sessionValid(
     return false;
   }
 
-  const exp = parseInt(
-    match[2],
-    36
-  );
+  const exp = parseInt(match[2], 36);
 
   if (
     !Number.isSafeInteger(exp) ||
@@ -548,10 +464,6 @@ async function sessionValid(
   );
 }
 
-/**
- * Comunicacao privada com Engines.
- * Service Binding + assinatura HMAC.
- */
 async function privateRequest(url, env) {
   const ts = Date.now().toString();
 
@@ -574,30 +486,21 @@ async function privateRequest(url, env) {
 
   try {
     const response = await env.ENGINES.fetch(
-      new Request(
-        upstream.toString(),
-        {
-          method: 'GET',
-          headers: {
-            'X-Hacktiba-Timestamp': ts,
-            'X-Hacktiba-Signature': signature
-          },
-          signal: ctrl.signal
-        }
-      )
+      new Request(upstream.toString(), {
+        method: 'GET',
+        headers: {
+          'X-Hacktiba-Timestamp': ts,
+          'X-Hacktiba-Signature': signature
+        },
+        signal: ctrl.signal
+      })
     );
 
     if (
       response.status !== 200 &&
       ![
-        400,
-        404,
-        405,
-        413,
-        414,
-        429,
-        502,
-        503
+        400, 404, 405, 413,
+        414, 429, 502, 503
       ].includes(response.status)
     ) {
       throw new ApiError(
@@ -653,9 +556,6 @@ async function privateRequest(url, env) {
   }
 }
 
-/**
- * Gateway HTTP.
- */
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -664,13 +564,10 @@ export default {
       env.SITE_ORIGIN || ''
     ).replace(/\/$/, '');
 
-    const origin = request.headers.get(
-      'Origin'
-    ) || '';
+    const origin = request.headers.get('Origin') || '';
 
     const permitted =
-      allowedOrigin &&
-      origin === allowedOrigin;
+      allowedOrigin && origin === allowedOrigin;
 
     if (
       url.pathname === '/api/health' &&
@@ -684,7 +581,7 @@ export default {
 
     if (!permitted) {
       return json(
-        {error: 'Origem não autorizada.'},
+        { error: 'Origem não autorizada.' },
         403
       );
     }
@@ -692,13 +589,10 @@ export default {
     if (request.method === 'OPTIONS') {
       if (
         url.pathname !== '/api/session' &&
-        !Object.hasOwn(
-          ROUTES,
-          url.pathname
-        )
+        !Object.hasOwn(ROUTES, url.pathname)
       ) {
         return json(
-          {error: 'Rota inexistente.'},
+          { error: 'Rota inexistente.' },
           404,
           origin
         );
@@ -732,10 +626,7 @@ export default {
 
       const ip = clientIp(request);
 
-      const key = await rateKey(
-        ip,
-        env
-      );
+      const key = await rateKey(ip, env);
 
       await limit(
         env,
@@ -743,9 +634,6 @@ export default {
         'GENERAL_RATE'
       );
 
-      /**
-       * Autenticacao Turnstile.
-       */
       if (url.pathname === '/api/session') {
         if (
           request.method !== 'POST' ||
@@ -789,10 +677,7 @@ export default {
 
         return json(
           {
-            session: await issueSession(
-              ip,
-              env
-            ),
+            session: await issueSession(ip, env),
             expiresIn: TTL_MS / 1000
           },
           200,
@@ -800,15 +685,7 @@ export default {
         );
       }
 
-      /**
-       * Rotas de pesquisa.
-       */
-      if (
-        !Object.hasOwn(
-          ROUTES,
-          url.pathname
-        )
-      ) {
+      if (!Object.hasOwn(ROUTES, url.pathname)) {
         throw new ApiError(
           404,
           'Rota inexistente.'
@@ -822,13 +699,7 @@ export default {
         );
       }
 
-      const validSession = await sessionValid(
-        request,
-        env,
-        ip
-      );
-
-      if (!validSession) {
+      if (!await sessionValid(request, env, ip)) {
         throw new ApiError(
           401,
           'Sessão expirada. Confirme seu acesso novamente.'
@@ -854,17 +725,15 @@ export default {
       );
 
     } catch (err) {
-      const code =
-        err instanceof ApiError
-          ? err.status
-          : 502;
+      const code = err instanceof ApiError
+        ? err.status
+        : 502;
 
       return json(
         {
-          error:
-            err instanceof ApiError
-              ? err.message
-              : 'Falha temporária.'
+          error: err instanceof ApiError
+            ? err.message
+            : 'Falha temporária.'
         },
         code,
         origin
